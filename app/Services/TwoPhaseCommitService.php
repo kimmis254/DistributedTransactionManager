@@ -1,0 +1,159 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\AccountNodeA;
+use App\Models\AccountNodeB;
+use Illuminate\Support\Str;
+use Exception;
+use Illuminate\Support\Facades\Log;
+
+class TwoPhaseCommitService
+{
+    /**
+     * The Main Entry Point.
+     * Attempts to move money from Node A (Sender) to Node B (Receiver)
+     * using the 2PC Protocol.
+     */
+    public function executeTransfer(float $amount, bool $simulateFailureAtNodeB = false)
+    {
+        // 1. Generate a unique Transaction ID (Traceability)
+        $txId = (string) Str::uuid();
+        
+        // ====================================================
+        // PHASE 1: PREPARE (Voting Phase)
+        // ====================================================
+        // The Coordinator asks both nodes: "Can you commit this?"
+        
+        try {
+            // Vote 1: Prepare Node A (The Sender)
+            // We lock the funds here so they cannot be double-spent.
+            $nodeAVote = $this->prepareNodeA($txId, $amount);
+
+            // Vote 2: Prepare Node B (The Receiver)
+            // We check if Node B is online and ready to receive.
+            // If $simulateFailureAtNodeB is true, this will artificially fail.
+            $nodeBVote = $this->prepareNodeB($txId, $simulateFailureAtNodeB);
+
+            // Check Votes
+            if ($nodeAVote && $nodeBVote) {
+                // ====================================================
+                // PHASE 2: COMMIT (Completion Phase)
+                // ====================================================
+                // Both voted YES. The Coordinator orders the global Commit.
+                
+                $this->commitNodeA($txId, $amount);
+                $this->commitNodeB($txId, $amount);
+
+                return [
+                    'status' => 'success', 
+                    'message' => 'Transaction Committed Globally.',
+                    'tx_id' => $txId
+                ];
+            } else {
+                // One voted NO. We must Abort.
+                throw new Exception("One or more nodes voted NO.");
+            }
+
+        } catch (Exception $e) {
+            // ====================================================
+            // PHASE 2: ROLLBACK (Recovery Phase)
+            // ====================================================
+            // Something went wrong. The Coordinator orders a global Rollback.
+            // This ensures ATOMICITY (The 'A' in ACID).
+            
+            Log::error("2PC Transaction Failed: " . $e->getMessage());
+            
+            $this->rollbackNodeA($txId);
+            $this->rollbackNodeB($txId);
+
+            return [
+                'status' => 'error', 
+                'message' => 'Transaction Aborted and Rolled Back. Reason: ' . $e->getMessage(),
+                'tx_id' => $txId
+            ];
+        }
+    }
+
+    // ----------------------------------------------------------------
+    // INTERNAL HELPER ROUTINES (The "Node Logic")
+    // ----------------------------------------------------------------
+
+    private function prepareNodeA($txId, $amount)
+    {
+        // Logic: Try to lock funds. 
+        // We only vote YES if balance is sufficient AND no other transaction is locking it.
+        $node = AccountNodeA::first();
+
+        if ($node->balance >= $amount && is_null($node->active_transaction_id)) {
+            $node->locked_amount = $amount;
+            $node->active_transaction_id = $txId;
+            $node->save();
+            return true; // VOTE YES
+        }
+        
+        return false; // VOTE NO (Insufficient funds or locked)
+    }
+
+    private function prepareNodeB($txId, $simulateFailure)
+    {
+        if ($simulateFailure) {
+            return false; // Artificial Network Crash -> VOTE NO
+        }
+
+        $node = AccountNodeB::first();
+        
+        // Simply lock the row to say "I am part of a transaction"
+        if (is_null($node->active_transaction_id)) {
+            $node->active_transaction_id = $txId;
+            $node->save();
+            return true; // VOTE YES
+        }
+
+        return false; // VOTE NO (Busy)
+    }
+
+    private function commitNodeA($txId, $amount)
+    {
+        $node = AccountNodeA::where('active_transaction_id', $txId)->first();
+        if ($node) {
+            // Finalize deduction
+            $node->balance -= $node->locked_amount;
+            $node->locked_amount = 0;
+            $node->active_transaction_id = null; // Release Lock
+            $node->save();
+        }
+    }
+
+    private function commitNodeB($txId, $amount)
+    {
+        $node = AccountNodeB::where('active_transaction_id', $txId)->first();
+        if ($node) {
+            // Finalize addition
+            $node->balance += $amount;
+            $node->active_transaction_id = null; // Release Lock
+            $node->save();
+        }
+    }
+
+    private function rollbackNodeA($txId)
+    {
+        $node = AccountNodeA::where('active_transaction_id', $txId)->first();
+        if ($node) {
+            // Revert lock, do NOT deduct money
+            $node->locked_amount = 0;
+            $node->active_transaction_id = null;
+            $node->save();
+        }
+    }
+
+    private function rollbackNodeB($txId)
+    {
+        $node = AccountNodeB::where('active_transaction_id', $txId)->first();
+        if ($node) {
+            // Just release the lock
+            $node->active_transaction_id = null;
+            $node->save();
+        }
+    }
+}
