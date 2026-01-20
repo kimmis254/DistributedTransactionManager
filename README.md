@@ -1,59 +1,150 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+Distributed Transaction Manager (2PC Simulation)
+📌 Project Overview
+This project implements a Distributed Database Management System (DDMS) simulation focusing on Concurrency Control and Atomic Consistency.
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+It addresses specific gaps identified in the 2023 literature survey "Revolution of Database Management System", which highlighted that modern database systems (NewSQL/NoSQL) often lack mature integrity approaches and require better concurrency control mechanisms to guarantee ACID properties in distributed environments.
 
-## About Laravel
+🎯 Objective
+To demonstrate a Two-Phase Commit (2PC) Protocol that ensures data integrity across decoupled, shared-nothing nodes. The system guarantees that a transaction either commits on all nodes or rolls back on all nodes, preventing data inconsistency during network failures.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+🏗️ System Architecture
+The project simulates a distributed environment using a central Coordinator and two independent data nodes.
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+Coordinator (Laravel Service): Manages the transaction lifecycle. It does not hold data but orchestrates the "Prepare" and "Commit" phases.
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+Node A (SQLite DB 1): Represents "Sender" (e.g., New York Branch).
 
-## Learning Laravel
+Node B (SQLite DB 2): Represents "Receiver" (e.g., London Branch).
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+Client (React Dashboard): A real-time visual interface for initiating transactions and monitoring node states.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+✨ Key Features
+Two-Phase Commit (2PC) Algorithm:
 
-## Laravel Sponsors
+Phase 1 (Voting): Nodes lock funds and vote "Yes" or "No".
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+Phase 2 (Completion): Coordinator enforces Global Commit or Global Rollback.
 
-### Premium Partners
+Distributed Concurrency Control:
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+Implements locking mechanisms (locked_amount, active_transaction_id) to prevent double-spending and ensure isolation.
 
-## Contributing
+Fault Tolerance (Chaos Engineering):
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+Includes a "Simulate Failure" toggle that artificially breaks the connection to Node B, forcing the system to demonstrate a safe Rollback on Node A.
 
-## Code of Conduct
+Real-Time Visualization:
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+Live dashboard showing balance updates and lock states via polling.
 
-## Security Vulnerabilities
+🚀 Installation & Setup
+Prerequisites
+PHP >= 8.1
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+Composer
 
-## License
+Node.js & NPM
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+SQLite
+
+1. Backend Setup (Laravel)
+The backend acts as the Coordinator and hosts the two database nodes.
+
+Bash
+# 1. Clone/Navigate to project
+cd distinct-db-transaction
+
+# 2. Install PHP dependencies
+composer install
+
+# 3. Environment Setup
+cp .env.example .env
+php artisan key:generate
+
+# 4. Create the distinct Database Nodes (Linux/Mac)
+touch database/node_a.sqlite database/node_b.sqlite
+# (On Windows, just create two empty files with these names in the database folder)
+
+# 5. Run Migrations on BOTH nodes
+php artisan migrate --database=node_a
+php artisan migrate --database=node_b
+
+# 6. Seed Initial Data (User A: $1000, User B: $0)
+php artisan db:seed --class=NodeSeeder
+
+# 7. Start the Server
+php artisan serve
+The Backend will run at http://127.0.0.1:8000
+
+2. Frontend Setup (React + Vite)
+The frontend visualizes the transaction states.
+
+Bash
+# 1. Navigate to the dashboard folder
+cd transaction-dashboard
+
+# 2. Install JS dependencies
+npm install
+
+# 3. Start the Development Server
+npm run dev
+The Frontend will run at http://localhost:5173
+
+🧪 Usage & Testing Scenarios
+To validate the "Reliability" and "Integrity" requirements mentioned in the survey paper, perform the following tests:
+
+Test A: The Happy Path (Atomicity)
+Enter Amount: $100.
+
+Ensure "Simulate Failure" is OFF.
+
+Click Execute Transaction.
+
+Result: Node A decreases ($900), Node B increases ($100). Status logs show Global Commit.
+
+Test B: The Integrity Check (Failure Handling)
+Toggle ON "Simulate Network Failure".
+
+Click Execute Transaction.
+
+Result:
+
+Node A temporarily locks funds (Phase 1).
+
+Node B fails to respond.
+
+Coordinator detects failure and sends ROLLBACK.
+
+Node A returns to original balance ($900). No money is lost.
+
+📂 Project Structure
+distinct-db-transaction/
+├── app/
+│   ├── Services/
+│   │   └── TwoPhaseCommitService.php  <-- The Core 2PC Algorithm
+│   ├── Models/
+│   │   ├── AccountNodeA.php           <-- Connection to DB 1
+│   │   └── AccountNodeB.php           <-- Connection to DB 2
+│   └── Http/Controllers/Api/          <-- API Endpoints
+├── config/
+│   └── database.php                   <-- Multi-connection setup
+├── database/
+│   ├── node_a.sqlite                  <-- Physical File for Node A
+│   └── node_b.sqlite                  <-- Physical File for Node B
+└── transaction-dashboard/             <-- React Frontend
+    └── src/App.jsx                    <-- Dashboard Logic
+📚 References
+This implementation is based on the analysis provided in:
+
+Patel, S., Choudhary, J., & Patil, G. (2023). Revolution of Database Management System: A Literature Survey. International Journal of Engineering Trends and Technology. 
+
+Specific concepts implemented:
+
+
+ACID Properties in NewSQL: Addressing the need for greater integrity approaches.
+
+
+Shared-Nothing Architecture: Simulating independent nodes.
+
+
+Predictability: Ensuring consistent data states in real-time.
