@@ -117,34 +117,4 @@ Coordinator detects failure and sends ROLLBACK.
 
 Node A returns to original balance ($900). No money is lost.
 
-📂 Project Structure
-distinct-db-transaction/
-├── app/
-│   ├── Services/
-│   │   └── TwoPhaseCommitService.php  <-- The Core 2PC Algorithm
-│   ├── Models/
-│   │   ├── AccountNodeA.php           <-- Connection to DB 1
-│   │   └── AccountNodeB.php           <-- Connection to DB 2
-│   └── Http/Controllers/Api/          <-- API Endpoints
-├── config/
-│   └── database.php                   <-- Multi-connection setup
-├── database/
-│   ├── node_a.sqlite                  <-- Physical File for Node A
-│   └── node_b.sqlite                  <-- Physical File for Node B
-└── transaction-dashboard/             <-- React Frontend
-    └── src/App.jsx                    <-- Dashboard Logic
-📚 References
-This implementation is based on the analysis provided in:
 
-Patel, S., Choudhary, J., & Patil, G. (2023). Revolution of Database Management System: A Literature Survey. International Journal of Engineering Trends and Technology. 
-
-Specific concepts implemented:
-
-
-ACID Properties in NewSQL: Addressing the need for greater integrity approaches.
-
-
-Shared-Nothing Architecture: Simulating independent nodes.
-
-
-Predictability: Ensuring consistent data states in real-time.
