@@ -27,14 +27,20 @@ class TransactionController extends Controller
         // 1. Validate Input
         $request->validate([
             'amount' => 'required|numeric|min:1',
-            'simulate_failure' => 'boolean' // The "Chaos Monkey" toggle
+            'failure_scenario' => 'nullable|string|in:none,node_b_vote,ack_timeout_node_a,coordinator_crash',
+            'simulate_failure' => 'boolean' // Legacy support
         ]);
 
         $amount = (float) $request->input('amount');
-        $simulateFailure = $request->input('simulate_failure', false);
+        
+        // Determine scenario: Prefer specific enum, fall back to boolean flag
+        $scenario = $request->input('failure_scenario');
+        if (!$scenario) {
+            $scenario = $request->input('simulate_failure', false) ? 'node_b_vote' : 'none';
+        }
 
         // 2. Execute the 2PC Protocol via the Service
-        $result = $this->coordinator->executeTransfer($amount, $simulateFailure);
+        $result = $this->coordinator->executeTransfer($amount, $scenario);
 
         // 3. Return JSON response
         if ($result['status'] === 'success') {

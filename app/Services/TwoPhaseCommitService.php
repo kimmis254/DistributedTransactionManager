@@ -16,8 +16,11 @@ class TwoPhaseCommitService
      * The Main Entry Point.
      * Attempts to move money from Node A (Sender) to Node B (Receiver)
      * using the 2PC Protocol.
+     * 
+     * @param float $amount
+     * @param string $failureScenario 'none', 'node_b_vote', 'ack_timeout_node_a', 'coordinator_crash'
      */
-    public function executeTransfer(float $amount, bool $simulateFailureAtNodeB = false)
+    public function executeTransfer(float $amount, string $failureScenario = 'none')
     {
         // 1. Generate a unique Transaction ID (Traceability)
         $txId = (string) Str::uuid();
@@ -26,22 +29,20 @@ class TwoPhaseCommitService
         // ====================================================
         // PHASE 1: PREPARE (Voting Phase)
         // ====================================================
-        // The Coordinator asks both nodes: "Can you commit this?"
         
         try {
             $this->logStep("PREPARE", "Phase 1: Voting Phase Started.");
             
-            // Vote 1: Prepare Node A (The Sender)
-            // We lock the funds here so they cannot be double-spent.
+            // Vote 1: Prepare Node A
             $this->logStep("PREPARE", "Asking Node A to Prepare (Lock funds)...");
             $nodeAVote = $this->prepareNodeA($txId, $amount);
             $this->logStep("PREPARE", "Node A Voted: " . ($nodeAVote ? "YES" : "NO"));
 
-            // Vote 2: Prepare Node B (The Receiver)
-            // We check if Node B is online and ready to receive.
-            // If $simulateFailureAtNodeB is true, this will artificially fail.
+            // Vote 2: Prepare Node B
             $this->logStep("PREPARE", "Asking Node B to Prepare (Check status)...");
-            $nodeBVote = $this->prepareNodeB($txId, $simulateFailureAtNodeB);
+            // Simulate 'node_b_vote' failure here
+            $forceNodeBFail = ($failureScenario === 'node_b_vote');
+            $nodeBVote = $this->prepareNodeB($txId, $forceNodeBFail);
             $this->logStep("PREPARE", "Node B Voted: " . ($nodeBVote ? "YES" : "NO"));
 
             // Check Votes
@@ -49,13 +50,27 @@ class TwoPhaseCommitService
                 // ====================================================
                 // PHASE 2: COMMIT (Completion Phase)
                 // ====================================================
-                // Both voted YES. The Coordinator orders the global Commit.
                 
                 $this->logStep("DECISION", "All nodes voted YES. Coordinator decides to GLOBALLY COMMIT.");
                 
+                // SIMULATION: Coordinator Crash
+                if ($failureScenario === 'coordinator_crash') {
+                    $this->logStep("CRASH", "⚠️ COORDINATOR CRASHED before sending commands! System Halted.");
+                    // In a real crash, the process dies here. We throw different exception
+                    // to differentiate from a normal rollback scenario in our controller/dashboard.
+                    throw new Exception("Coordinator Crashed! Locks are held indefinitely.");
+                }
+
                 $this->logStep("COMMIT", "Sending COMMIT command to Node A...");
                 $this->commitNodeA($txId, $amount);
-                $this->logStep("ACK", "Node A acknowledged COMMIT.");
+                
+                // SIMULATION: Ack Timeout Node A
+                if ($failureScenario === 'ack_timeout_node_a') {
+                     $this->logStep("TIMEOUT", "❌ Ack Timeout: Node A did not acknowledge Commit!");
+                     // Proceed anyway, but log the error. Protocol assumes eventually consistent or needs manual check.
+                } else {
+                    $this->logStep("ACK", "Node A acknowledged COMMIT.");
+                }
 
                 $this->logStep("COMMIT", "Sending COMMIT command to Node B...");
                 $this->commitNodeB($txId, $amount);
@@ -74,12 +89,18 @@ class TwoPhaseCommitService
             }
 
         } catch (Exception $e) {
-            // ====================================================
-            // PHASE 2: ROLLBACK (Recovery Phase)
-            // ====================================================
-            // Something went wrong. The Coordinator orders a global Rollback.
-            // This ensures ATOMICITY (The 'A' in ACID).
-            
+            // Check if it was our simulated crash
+            if ($e->getMessage() === "Coordinator Crashed! Locks are held indefinitely.") {
+                 return [
+                    'status' => 'error',
+                    'message' => 'CRITICAL: Coordinator Crashed. Transaction is IN DOUBT (Locks held). Needs manual recovery.',
+                    'tx_id' => $txId,
+                    'transaction_log' => $this->transactionLog,
+                    'is_crash' => true
+                ];
+            }
+
+            // Normal Rollback logic
             Log::error("2PC Transaction Failed: " . $e->getMessage());
             $this->logStep("ROLLBACK", "Phase 2: Global Rollback Started due to error: " . $e->getMessage());
             

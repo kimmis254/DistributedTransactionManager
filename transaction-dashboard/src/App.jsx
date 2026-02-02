@@ -7,7 +7,7 @@ const API_URL = 'http://127.0.0.1:8000/api/v1';
 function App() {
   const [nodes, setNodes] = useState(null);
   const [amount, setAmount] = useState(100);
-  const [simulateFailure, setSimulateFailure] = useState(false);
+  const [failureScenario, setFailureScenario] = useState('none');
   const [loading, setLoading] = useState(false);
   const [logs, setLogs] = useState([]);
   const logsEndRef = useRef(null);
@@ -46,7 +46,7 @@ function App() {
     try {
       const res = await axios.post(`${API_URL}/transfer`, {
         amount: amount,
-        simulate_failure: simulateFailure
+        failure_scenario: failureScenario
       });
 
       // Process detailed logs from backend
@@ -83,6 +83,10 @@ function App() {
       if (log.stage === 'ROLLBACK') color = 'text-red-300';
       if (log.stage === 'ACK') color = 'text-blue-300';
       if (log.stage === 'DECISION') color = 'text-purple-300 font-bold';
+
+      // New Failure Modes
+      if (log.stage === 'TIMEOUT') color = 'text-orange-400 font-bold';
+      if (log.stage === 'CRASH') color = 'text-red-600 font-extrabold bg-red-900/20';
 
       addLog(`[${log.stage}] ${log.message}`, color);
     }
@@ -158,21 +162,25 @@ function App() {
               </div>
             </div>
 
-            {/* Toggle Section */}
-            <label className="flex items-center gap-3 cursor-pointer group p-3 rounded-lg hover:bg-slate-700/50 transition-colors">
+            {/* Chaos Mode Section */}
+            <div className="flex flex-col gap-2 w-full md:w-auto">
+              <label className="text-sm font-bold text-slate-400 uppercase tracking-wider">Chaos Mode</label>
               <div className="relative">
-                <input
-                  type="checkbox"
-                  checked={simulateFailure}
-                  onChange={(e) => setSimulateFailure(e.target.checked)}
-                  className="sr-only peer"
-                />
-                <div className="w-14 h-7 bg-slate-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[4px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-6 after:w-6 after:transition-all peer-checked:bg-red-600"></div>
+                <select
+                  value={failureScenario}
+                  onChange={(e) => setFailureScenario(e.target.value)}
+                  className="w-full pl-4 pr-10 py-3 bg-slate-900 border border-slate-600 rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none text-white font-mono text-sm appearance-none cursor-pointer hover:bg-slate-800 transition-colors"
+                >
+                  <option value="none">🟢 Normal Execution</option>
+                  <option value="node_b_vote">🔴 Node B Vote Failure (Abort)</option>
+                  <option value="ack_timeout_node_a">🟠 Ack Timeout Node A (Warning)</option>
+                  <option value="coordinator_crash">💀 Coordinator Crash (Critical)</option>
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
+                  ▼
+                </div>
               </div>
-              <span className={`font-bold transition-colors ${simulateFailure ? 'text-red-400' : 'text-slate-400 group-hover:text-slate-200'}`}>
-                Simulate Failure (Chaos Mode)
-              </span>
-            </label>
+            </div>
 
             {/* Actions */}
             <div className="flex gap-4 w-full md:w-auto">
