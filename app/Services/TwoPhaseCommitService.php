@@ -10,6 +10,8 @@ use Illuminate\Support\Facades\Log;
 
 class TwoPhaseCommitService
 {
+    private $transactionLog = [];
+
     /**
      * The Main Entry Point.
      * Attempts to move money from Node A (Sender) to Node B (Receiver)
@@ -19,21 +21,28 @@ class TwoPhaseCommitService
     {
         // 1. Generate a unique Transaction ID (Traceability)
         $txId = (string) Str::uuid();
-        
+        $this->logStep("INIT", "Transaction $txId started.");
+
         // ====================================================
         // PHASE 1: PREPARE (Voting Phase)
         // ====================================================
         // The Coordinator asks both nodes: "Can you commit this?"
         
         try {
+            $this->logStep("PREPARE", "Phase 1: Voting Phase Started.");
+            
             // Vote 1: Prepare Node A (The Sender)
             // We lock the funds here so they cannot be double-spent.
+            $this->logStep("PREPARE", "Asking Node A to Prepare (Lock funds)...");
             $nodeAVote = $this->prepareNodeA($txId, $amount);
+            $this->logStep("PREPARE", "Node A Voted: " . ($nodeAVote ? "YES" : "NO"));
 
             // Vote 2: Prepare Node B (The Receiver)
             // We check if Node B is online and ready to receive.
             // If $simulateFailureAtNodeB is true, this will artificially fail.
+            $this->logStep("PREPARE", "Asking Node B to Prepare (Check status)...");
             $nodeBVote = $this->prepareNodeB($txId, $simulateFailureAtNodeB);
+            $this->logStep("PREPARE", "Node B Voted: " . ($nodeBVote ? "YES" : "NO"));
 
             // Check Votes
             if ($nodeAVote && $nodeBVote) {
@@ -42,16 +51,25 @@ class TwoPhaseCommitService
                 // ====================================================
                 // Both voted YES. The Coordinator orders the global Commit.
                 
+                $this->logStep("DECISION", "All nodes voted YES. Coordinator decides to GLOBALLY COMMIT.");
+                
+                $this->logStep("COMMIT", "Sending COMMIT command to Node A...");
                 $this->commitNodeA($txId, $amount);
+                $this->logStep("ACK", "Node A acknowledged COMMIT.");
+
+                $this->logStep("COMMIT", "Sending COMMIT command to Node B...");
                 $this->commitNodeB($txId, $amount);
+                $this->logStep("ACK", "Node B acknowledged COMMIT.");
 
                 return [
                     'status' => 'success', 
                     'message' => 'Transaction Committed Globally.',
-                    'tx_id' => $txId
+                    'tx_id' => $txId,
+                    'transaction_log' => $this->transactionLog
                 ];
             } else {
                 // One voted NO. We must Abort.
+                $this->logStep("DECISION", "One or more nodes voted NO. Coordinator decides to ABORT.");
                 throw new Exception("One or more nodes voted NO.");
             }
 
@@ -63,16 +81,33 @@ class TwoPhaseCommitService
             // This ensures ATOMICITY (The 'A' in ACID).
             
             Log::error("2PC Transaction Failed: " . $e->getMessage());
+            $this->logStep("ROLLBACK", "Phase 2: Global Rollback Started due to error: " . $e->getMessage());
             
+            $this->logStep("ROLLBACK", "Sending ROLLBACK command to Node A...");
             $this->rollbackNodeA($txId);
+            $this->logStep("ACK", "Node A acknowledged ROLLBACK.");
+
+            $this->logStep("ROLLBACK", "Sending ROLLBACK command to Node B...");
             $this->rollbackNodeB($txId);
+            $this->logStep("ACK", "Node B acknowledged ROLLBACK.");
 
             return [
                 'status' => 'error', 
                 'message' => 'Transaction Aborted and Rolled Back. Reason: ' . $e->getMessage(),
-                'tx_id' => $txId
+                'tx_id' => $txId,
+                'transaction_log' => $this->transactionLog
             ];
         }
+    }
+
+    private function logStep($stage, $message) {
+        $entry = sprintf("[%s] %s", $stage, $message);
+        Log::info("2PC-TRACE: $entry");
+        $this->transactionLog[] = [
+            'stage' => $stage,
+            'message' => $message,
+            'timestamp' => now()->toIso8601String()
+        ];
     }
 
     // ----------------------------------------------------------------
